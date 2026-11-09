@@ -82,7 +82,7 @@ tr.det td{background:var(--surface2);padding:0 10px 14px 34px}
 }
 </style>
 
-<div class="note"><b>Proposta de layout · Detalhes Registro (v2).</b> Cada e-protocolo tem uma prenotação, e o pedido pode ter vários pares. Clique numa linha para ver os dados da prenotação e a Resposta RI. Use a barra de simulação abaixo para testar o bloqueio por integração ONR e o status "Registrado".</div>
+<div class="note"><b>Proposta de layout · Detalhes Registro (v2).</b> Cada e-protocolo tem uma prenotação, e o pedido pode ter vários pares. Clique numa linha para ver os dados da prenotação e a Resposta RI. Use a barra de simulação abaixo para testar o bloqueio por integração ONR e o status "Registrada".</div>
 
 <div class="sim">
   <strong>Simulação do pedido</strong>
@@ -102,7 +102,7 @@ tr.det td{background:var(--surface2);padding:0 10px 14px 34px}
     <div id="form-wrap"></div>
     <div class="tw"><table>
       <thead><tr>
-        <th style="width:24px"></th><th>E-Protocolo</th><th>Data E-Prot.</th><th>Nº Prenotação</th><th>Data Prenot.</th><th>Vencimento</th><th>Vence em</th><th>Situação</th>
+        <th style="width:24px"></th><th>E-Protocolo</th><th>Data E-Prot.</th><th>Nº Prenotação</th><th>Data Prenot.</th><th>Vencimento</th><th>Prazo</th><th>Situação</th>
       </tr></thead>
       <tbody id="tb"></tbody>
     </table></div>
@@ -133,7 +133,7 @@ const isFin = () => $('sim-fin').checked;
 
 function situacao(r){
   if (r.id !== currentId()) return {cls:'sub',txt:'Substituída'};
-  if (isFin()) return {cls:'reg',txt:'Registrado'};
+  if (isFin()) return {cls:'reg',txt:'Registrada'};
   if (r.dVenc && toDate(r.dVenc) < HOJE) return {cls:'ven',txt:'Vencida'};
   return {cls:'vig',txt:'Vigente'};
 }
@@ -142,14 +142,14 @@ function venceEm(r){
   if (s.cls==='sub' || s.cls==='reg' || !r.dVenc) return '<span style="color:var(--muted)">—</span>';
   const dias = Math.round((toDate(r.dVenc)-HOJE)/864e5);
   if (dias < 0) return `<span class="bd ven">vencida há ${-dias} dia${-dias>1?'s':''}</span>`;
-  const txt = dias===0 ? 'hoje' : `${dias} dia${dias>1?'s':''}`;
+  const txt = dias===0 ? 'vence hoje' : `vence em ${dias} dia${dias>1?'s':''}`;
   return `<span class="bd ${dias<=5?'warn':'ok'}">${txt}</span>`;
 }
 // motivo do bloqueio de edição ('' = pode editar)
 function bloqueio(r){
   const s = situacao(r);
   if (s.cls==='sub') return 'Prenotação substituída: os dados ficam somente para consulta.';
-  if (s.cls==='reg') return 'Pedido finalizado e registrado: os dados ficam somente para consulta.';
+  if (s.cls==='reg') return 'Pedido finalizado e prenotação registrada: os dados ficam somente para consulta.';
   if (isONR()) return 'Pedido enviado por integração com a ONR: a edição dos dados da prenotação está bloqueada.';
   return '';
 }
