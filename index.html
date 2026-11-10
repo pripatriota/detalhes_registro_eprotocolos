@@ -75,6 +75,11 @@ tr.det td{background:var(--surface2);padding:0 10px 14px 34px}
 .mf{border-top:1px solid var(--line);padding:12px 22px;display:flex;justify-content:flex-end}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--green-dk);color:#fff;padding:9px 18px;border-radius:6px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
 .toast.show{opacity:1}
+.btn-r{background:#fff;color:var(--red);border-color:#E3A8A6} .btn-r:hover:not(:disabled){background:var(--red-lt)}
+.btn-rs{background:var(--red);color:#fff;border-color:#AC2925} .btn-rs:hover{background:#AC2925}
+.confirm{margin-top:10px;border:1px solid #E3A8A6;background:var(--red-lt);border-radius:6px;padding:10px 12px;font-size:12.5px}
+.confirm p{margin:6px 0 0}
+.ped-st{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--ink)}
 @media (max-width:640px){
   .f-grid{grid-template-columns:1fr}.det-grid{grid-template-columns:1fr}
   .mb,.mh{padding-left:14px;padding-right:14px}
@@ -82,13 +87,17 @@ tr.det td{background:var(--surface2);padding:0 10px 14px 34px}
 }
 </style>
 
-<div class="note"><b>Proposta de layout · Detalhes Registro (v2).</b> Cada e-protocolo tem uma prenotação, e o pedido pode ter vários pares. Clique numa linha para ver os dados da prenotação e a Resposta RI. Use a barra de simulação abaixo para testar o bloqueio por integração ONR e o status "Registrada".</div>
+<div class="note"><b>Proposta de layout · Detalhes Registro (v2).</b> Cada e-protocolo tem uma prenotação, e o pedido pode ter vários pares. Clique numa linha para ver os dados da prenotação e a Resposta RI. Use a barra de simulação abaixo para testar o bloqueio por integração ONR, o status "Registrada" e o fluxo de envio à ONR: "Enviar para ONR" cria um Protocolo Temp; abra a linha e use "Desconsiderar Protocolo Temp" para liberar um novo envio.</div>
 
 <div class="sim">
   <strong>Simulação do pedido</strong>
   <label><input type="checkbox" id="sim-onr" onchange="render()"> Pedido enviado por integração ONR</label>
   <label><input type="checkbox" id="sim-fin" onchange="render()"> Status do pedido: Pedido Finalizado</label>
   <label><input type="checkbox" id="sim-ven" onchange="simVencida(this.checked)"> Prenotação atual vencida há 2 dias</label>
+  <span class="ped-st">Status do pedido: <b id="st-ped">Em análise no cartório</b>
+    <button class="btn btn-p" id="btn-onr" onclick="enviarONR()" style="padding:4px 12px;font-size:12px">Enviar para ONR</button>
+    <span style="color:var(--muted)">(botão existente no pedido)</span></span>
+  <button class="btn btn-d" onclick="limparTestes()" style="padding:4px 12px;font-size:12px;margin-left:auto">↺ Limpar cadastros de teste</button>
 </div>
 
 <div class="modal" role="dialog" aria-labelledby="t">
@@ -115,24 +124,26 @@ tr.det td{background:var(--surface2);padding:0 10px 14px 34px}
 <script>
 const HOJE = new Date(2026,10,9);
 let seq = 3;
-let regs = [
+const INIT = [
   {id:1,ptemp:'B83K2MZT7Q',eprot:'AC21231904512',dEprot:'2026-08-04',prenot:'148.771',dPrenot:'2026-08-05',dVenc:'2026-09-04',senha:'K8P3-41',dResp:'2026-08-21',resp:'Apresentar certidão de casamento atualizada (emitida há menos de 90 dias) e recolher a diferença de emolumentos.'},
   {id:2,ptemp:'D51W7HRC4L',eprot:'AC21233512004',dEprot:'2026-09-02',prenot:'151.302',dPrenot:'2026-09-03',dVenc:'2026-10-03',senha:'M2Q9-17',dResp:'2026-09-25',resp:'Retificar a descrição do imóvel conforme matrícula 45.210.'},
   {id:3,ptemp:'F06Q8XJQ9N',eprot:'AC21233789567',dEprot:'2026-10-28',prenot:'154.889',dPrenot:'2026-10-29',dVenc:'2026-11-28',senha:'X7K2-99',dResp:'',resp:''}
 ];
+let regs = JSON.parse(JSON.stringify(INIT));
 let open = null, editing = null;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const d = iso => iso ? iso.split('-').reverse().join('/') : '—';
 const toDate = iso => { const [y,m,dd]=iso.split('-').map(Number); return new Date(y,m-1,dd); };
-const keyOf = r => r.dPrenot || r.dEprot;
-const currentId = () => regs.length ? regs.reduce((a,b)=> keyOf(b) > keyOf(a) ? b : a).id : null;
+const currentId = () => regs.length ? Math.max(...regs.map(r=>r.id)) : null;
 const isONR = () => $('sim-onr').checked;
 const isFin = () => $('sim-fin').checked;
 
 function situacao(r){
+  if (r.desc) return {cls:'sub',txt:'Substituída'};
   if (r.id !== currentId()) return {cls:'sub',txt:'Substituída'};
+  if (!r.eprot) return {cls:'warn',txt:'Aguardando ONR'};
   if (isFin()) return {cls:'reg',txt:'Registrada'};
   if (r.dVenc && toDate(r.dVenc) < HOJE) return {cls:'ven',txt:'Vencida'};
   return {cls:'vig',txt:'Vigente'};
@@ -159,12 +170,17 @@ function render(){
   $('hist-t').textContent = `Histórico de e-protocolos e prenotações (${regs.length})`;
   $('btn-new').disabled = isFin();
   $('btn-new').title = isFin() ? 'Pedido finalizado: não é possível incluir nova prenotação.' : '';
-  const sorted = [...regs].sort((a,b)=> keyOf(b).localeCompare(keyOf(a)));
+  $('st-ped').textContent = isFin() ? 'Pedido Finalizado' : 'Em análise no cartório';
+  const pend = pendente();
+  $('btn-onr').disabled = isFin() || !!pend;
+  $('btn-onr').title = isFin() ? 'Envio disponível somente no status Em análise no cartório.'
+    : pend ? `Aguardando retorno da ONR para o Protocolo Temp ${pend.ptemp}. Desconsidere o protocolo para liberar um novo envio.` : '';
+  const sorted = [...regs].sort((a,b)=> b.id - a.id);
   $('tb').innerHTML = !regs.length ? '<tr><td colspan="8" class="empty">Nenhuma prenotação cadastrada para este pedido.</td></tr>' :
   sorted.map(r=>{
     const s = situacao(r), isOpen = open===r.id;
     let h = `<tr class="row ${isOpen?'open':''} ${r.id===currentId()?'is-cur':''}" onclick="toggle(${r.id})">
-      <td><span class="chev">▶</span></td><td><b>${esc(r.eprot)}</b></td><td>${d(r.dEprot)}</td><td>${esc(r.prenot)||'—'}</td>
+      <td><span class="chev">▶</span></td><td>${r.eprot ? `<b>${esc(r.eprot)}</b>` : `<span style="color:var(--muted);font-style:italic">${r.desc ? 'Não recebido' : 'Aguardando ONR'}</span>`}</td><td>${d(r.dEprot)}</td><td>${esc(r.prenot)||'—'}</td>
       <td>${d(r.dPrenot)}</td><td>${d(r.dVenc)}</td><td>${venceEm(r)}</td><td><span class="bd ${s.cls}">${s.txt}</span></td></tr>`;
     if (isOpen) h += `<tr class="det"><td colspan="8">${editing===r.id ? editForm(r) : detail(r)}</td></tr>`;
     return h;
@@ -173,20 +189,19 @@ function render(){
 
 function detail(r){
   const blk = bloqueio(r);
-  const respEditavel = r.id===currentId() && !isFin();
+  const respEditavel = r.id===currentId() && !isFin() && r.eprot && !r.desc;
   return `<div class="det-grid">
     <div class="box"><h3>Dados da prenotação</h3>
       <div class="kv">
         <span>Protocolo Temp</span>${esc(r.ptemp)||'—'}
-        <span>E-Protocolo</span><b>${esc(r.eprot)}</b>
+        <span>E-Protocolo</span>${r.eprot ? `<b>${esc(r.eprot)}</b>` : `<i style="color:var(--muted)">${r.desc ? 'Não recebido' : 'Aguardando retorno da ONR'}</i>`}
         <span>Data E-Protocolo</span>${d(r.dEprot)}
         <span>Nº Prenotação</span>${esc(r.prenot)||'—'}
         <span>Data Prenotação</span>${d(r.dPrenot)}
         <span>Data Venc. Prenotação</span>${d(r.dVenc)}
         <span>Senha Prenotação</span>${esc(r.senha)||'—'}
       </div>
-      ${blk ? `<div class="lock"><span>🔒</span><span>${blk}</span></div>`
-            : `<div class="f-actions" style="justify-content:flex-start"><button class="btn btn-d" onclick="startEdit(${r.id})">Editar dados</button></div>`}
+      ${acoes(r, blk)}
     </div>
     <div class="box"><h3>Resposta RI</h3>
       ${r.resp ? `<div style="font-size:12px;color:var(--mid);margin-bottom:6px">Recebida em <b>${d(r.dResp)}</b></div><div class="resp">${esc(r.resp)}</div>`
@@ -200,19 +215,22 @@ function detail(r){
     </div></div>`;
 }
 
-const fields = r => `
+const REQ = '<span class="req">*</span>';
+// mode 'new' = cadastro manual (só e-protocolo); mode 'edit' = inclui os dados da prenotação
+const fields = (r, mode) => `
   <div class="f-grid">
-    <div class="f"><label>Protocolo Temp</label><input id="f-ptemp" value="${esc(r.ptemp)}"></div>
-    <div class="f"><label>E-Protocolo <span class="req">*</span></label><input id="f-eprot" value="${esc(r.eprot)}"></div>
-    <div class="f"><label>Data E-Protocolo <span class="req">*</span></label><input type="date" id="f-dEprot" value="${r.dEprot}"></div>
-    <div class="f"><label>Nº Prenotação</label><input id="f-prenot" value="${esc(r.prenot)}"></div>
-    <div class="f"><label>Data Prenotação</label><input type="date" id="f-dPrenot" value="${r.dPrenot}"></div>
-    <div class="f"><label>Data Venc. Prenotação</label><input type="date" id="f-dVenc" value="${r.dVenc}"></div>
-    <div class="f"><label>Senha Prenotação</label><input id="f-senha" value="${esc(r.senha)}"></div>
-  </div>`;
+    <div class="f"><label>E-Protocolo ${REQ}</label><input id="f-eprot" value="${esc(r.eprot)}"></div>
+    <div class="f"><label>Data E-Protocolo ${REQ}</label><input type="date" id="f-dEprot" value="${r.dEprot}"></div>
+    ${mode==='edit' ? `
+    <div class="f"><label>Nº Prenotação ${REQ}</label><input id="f-prenot" value="${esc(r.prenot)}"></div>
+    <div class="f"><label>Data Prenotação ${REQ}</label><input type="date" id="f-dPrenot" value="${r.dPrenot}"></div>
+    <div class="f"><label>Data Venc. Prenotação ${REQ}</label><input type="date" id="f-dVenc" value="${r.dVenc}"></div>
+    <div class="f"><label>Senha Prenotação</label><input id="f-senha" value="${esc(r.senha)}"></div>` : ''}
+  </div>
+  ${mode==='new' ? '<div class="hint">Os dados da prenotação (número, data e vencimento) são preenchidos depois, em "Editar dados".</div>' : ''}`;
 
 function editForm(r){
-  return `<div class="form" style="margin-top:4px"><div id="f-err"></div>${fields(r)}
+  return `<div class="form" style="margin-top:4px"><div id="f-err"></div>${fields(r,'edit')}
     <div class="f-actions"><button class="btn btn-d" onclick="cancelEdit()">Cancelar</button><button class="btn btn-p" onclick="saveEdit(${r.id})">Salvar</button></div></div>`;
 }
 
@@ -221,28 +239,37 @@ function openForm(){
   editing = null;
   const v = regs.find(r=>r.id===currentId());
   $('form-wrap').innerHTML = `<div class="form"><div id="f-err"></div>
-    <div style="font-weight:700;margin-bottom:10px">Nova prenotação</div>${fields({ptemp:'',eprot:'',dEprot:'',senha:'',prenot:'',dPrenot:'',dVenc:''})}
-    ${v ? `<div class="hint">Ao salvar, o E-Protocolo ${esc(v.eprot)} passa para "Substituída" e fica no histórico somente para consulta, com a sua Resposta RI.</div>` : ''}
+    <div style="font-weight:700;margin-bottom:10px">Nova prenotação</div>${fields({ptemp:'',eprot:'',dEprot:'',senha:'',prenot:'',dPrenot:'',dVenc:''},'new')}
+    ${v ? `<div class="hint">Ao salvar, o protocolo ${esc(v.eprot || v.ptemp)} passa para "Substituída" e fica no histórico somente para consulta, com a sua Resposta RI.</div>` : ''}
     <div class="f-actions"><button class="btn btn-d" onclick="closeForm()">Cancelar</button><button class="btn btn-p" onclick="saveNew()">Salvar</button></div></div>`;
   $('btn-new').hidden = true; render();
 }
 function closeForm(){ $('form-wrap').innerHTML=''; $('btn-new').hidden=false; }
 
+const val = id => { const el = $(id); return el ? el.value.trim() : ''; };
 function read(){
-  return {ptemp:$('f-ptemp').value.trim(),eprot:$('f-eprot').value.trim(),dEprot:$('f-dEprot').value,senha:$('f-senha').value.trim(),
-          prenot:$('f-prenot').value.trim(),dPrenot:$('f-dPrenot').value,dVenc:$('f-dVenc').value};
+  return {ptemp:val('f-ptemp'),eprot:val('f-eprot'),dEprot:val('f-dEprot'),senha:val('f-senha'),
+          prenot:val('f-prenot'),dPrenot:val('f-dPrenot'),dVenc:val('f-dVenc')};
 }
-function validate(o, selfId){
-  const miss=[]; if(!o.eprot) miss.push('E-Protocolo'); if(!o.dEprot) miss.push('Data E-Protocolo');
+function validate(o, selfId, mode){
+  const miss = [];
+  if(!o.eprot) miss.push('E-Protocolo');
+  if(!o.dEprot) miss.push('Data E-Protocolo');
+  if(mode==='edit'){
+    if(!o.prenot) miss.push('Nº Prenotação');
+    if(!o.dPrenot) miss.push('Data Prenotação');
+    if(!o.dVenc) miss.push('Data Venc. Prenotação');
+  }
   let msg = miss.length ? 'Preencha os campos obrigatórios: '+miss.join(', ')+'.' : '';
-  if(!msg && regs.some(r=>r.id!==selfId && r.eprot===o.eprot)) msg='Este E-Protocolo já está cadastrado neste pedido.';
+  if(!msg && o.ptemp && regs.some(r=>r.id!==selfId && r.ptemp===o.ptemp)) msg='Este Protocolo Temp já está cadastrado neste pedido.';
+  if(!msg && o.eprot && regs.some(r=>r.id!==selfId && r.eprot===o.eprot)) msg='Este E-Protocolo já está cadastrado neste pedido.';
   if(!msg && o.prenot && regs.some(r=>r.id!==selfId && r.prenot===o.prenot)) msg='Este número de prenotação já está cadastrado neste pedido.';
   if(!msg && o.dPrenot && o.dVenc && o.dVenc < o.dPrenot) msg='A data de vencimento não pode ser anterior à data da prenotação.';
   if(msg){ $('f-err').innerHTML=`<div class="err">${msg}</div>`; return false; }
   return true;
 }
 function saveNew(){
-  const o = read(); if(!validate(o,null)) return;
+  const o = read(); if(!validate(o,null,'new')) return;
   const n = {id:++seq,...o,dResp:'',resp:''}; regs.push(n);
   open = n.id; closeForm(); render(); toast('Prenotação incluída. A anterior passou para "Substituída".');
 }
@@ -252,17 +279,55 @@ function cancelEdit(){ editing=null; render(); }
 function saveEdit(id){
   const r = regs.find(x=>x.id===id);
   if (bloqueio(r)) { editing=null; render(); return; }
-  const o = read(); if(!validate(o,id)) return;
+  const o = read(); if(!validate(o,id,'edit')) return;
+  delete o.ptemp; // Protocolo Temp vem só da integração ONR: não é editado manualmente
   Object.assign(r,o); editing=null; render(); toast('Dados da prenotação atualizados.');
 }
 function saveResp(id){
   const r = regs.find(x=>x.id===id); r.dResp=$('dr-'+id).value; r.resp=$('tr-'+id).value.trim(); render(); toast('Resposta RI atualizada.');
 }
 function simVencida(on){
-  const r = regs.find(x=>x.id===currentId()); if(!r) return;
+  const r = regs.find(x=>x.id===3); if(!r) return;
   if (on) { r._venc = r._venc || r.dVenc; r.dVenc = '2026-11-07'; }
   else if (r._venc) { r.dVenc = r._venc; delete r._venc; }
   render();
+}
+// ── Protocolo Temp: desconsiderar e reenviar à ONR ──
+let confirming = null;
+const pendente = () => regs.find(r => r.id===currentId() && !r.eprot && !r.desc);
+function acoes(r, blk){
+  if (r.desc) return `<div class="lock"><span>🔒</span><span>Protocolo Temp desconsiderado por ${esc(r.descPor)} em ${r.descEm}. Esta ação não pode ser desfeita.</span></div>`;
+  if (!r.eprot) {
+    if (r.id!==currentId() || isFin()) return '';
+    if (confirming===r.id) return `<div class="confirm"><b>Desconsiderar o Protocolo Temp ${esc(r.ptemp)}?</b>
+      <p>O protocolo temp será desconsiderado e o envio para a ONR será liberado no pedido. <b>Esta ação não poderá ser desfeita.</b></p>
+      <div class="f-actions" style="justify-content:flex-start"><button class="btn btn-d" onclick="cancelDesc()">Cancelar</button><button class="btn btn-rs" onclick="confirmDesc(${r.id})">Desconsiderar</button></div></div>`;
+    return `<div class="hint" style="margin-top:10px">Sem retorno da ONR? Desconsidere este protocolo para liberar um novo envio do pedido.</div>
+      <div class="f-actions" style="justify-content:flex-start;margin-top:6px"><button class="btn btn-r" onclick="askDesc(${r.id})">Desconsiderar Protocolo Temp</button></div>`;
+  }
+  return blk ? `<div class="lock"><span>🔒</span><span>${blk}</span></div>`
+             : `<div class="f-actions" style="justify-content:flex-start"><button class="btn btn-d" onclick="startEdit(${r.id})">Editar dados</button></div>`;
+}
+function askDesc(id){ confirming=id; render(); }
+function cancelDesc(){ confirming=null; render(); }
+function confirmDesc(id){
+  const r = regs.find(x=>x.id===id); const n = new Date();
+  r.desc = true; r.descPor = 'Priscilla P.';
+  r.descEm = n.toLocaleDateString('pt-BR')+' às '+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  confirming = null; render(); toast('Protocolo desconsiderado. Envio para a ONR liberado.');
+}
+function enviarONR(){
+  if (isFin() || pendente()) return;
+  const ch = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+  const pt = Array.from({length:10},()=>ch[Math.floor(Math.random()*ch.length)]).join('');
+  const n = {id:++seq,ptemp:pt,eprot:'',dEprot:'',prenot:'',dPrenot:'',dVenc:'',senha:'',dResp:'',resp:''};
+  regs.push(n); open = n.id; editing = null; render(); toast(`Pedido enviado à ONR. Protocolo Temp ${pt}.`);
+}
+function limparTestes(){
+  regs = JSON.parse(JSON.stringify(INIT)); seq = 3;
+  open = null; editing = null; confirming = null;
+  ['sim-onr','sim-fin','sim-ven'].forEach(id => $(id).checked = false);
+  closeForm(); render(); toast('Cadastros de teste removidos. Dados iniciais restaurados.');
 }
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
 render();
